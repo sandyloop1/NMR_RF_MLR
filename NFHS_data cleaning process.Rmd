@@ -1,0 +1,142 @@
+---
+title: "Cleaning process of  of NFHS5_data"
+author: "Sandeep Thullimalli"
+date: "2025-03-19"
+output: html_document
+---
+
+#Install the packages before knitting
+```{r install-packages, eval=FALSE}
+# Run this in the Console before knitting:
+install.packages(c("dplyr", "readr", "ggplot2", "tidyr"))
+
+```
+
+## Load the installed packages
+```{r setup, include=FALSE}
+# Check the first few rows
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tidyr)
+
+```
+
+## Load raw data and complete the data cleaning process
+```{r}
+NFHS5_data <- readRDS("NFHS5_data.rds")
+nfhs5 <- NFHS5_data
+
+head(nfhs5)
+
+  
+  head(nfhs5)
+
+
+  # Convert 'Area' to factor
+nfhs5$Area <- as.factor(nfhs5$Area)
+
+# Identify and convert list columns to character
+for (col in colnames(nfhs5)) {
+    if (is.list(nfhs5[[col]])) {
+        nfhs5[[col]] <- as.character(nfhs5[[col]])
+    }
+}
+
+for (col in colnames(NFHS5_data)) {
+    if (is.list(NFHS5_data[[col]])) {
+        NFHS5_data[[col]] <- as.character(NFHS5_data[[col]])
+    }
+}
+
+
+# Restore 'States/UTs' column
+if (nrow(nfhs5) == nrow(NFHS5_data)) {
+    nfhs5$`States/UTs` <- NFHS5_data$`States/UTs`
+    print("✅ States/UTs column restored successfully!")
+} else {
+    print("⚠ Row mismatch! Proceeding with a merge instead.")
+    
+    # Create a mapping table
+    state_mapping <- NFHS5_data %>%
+        select(`States/UTs`) %>%
+        distinct() %>%
+        mutate(Row_ID = row_number())
+
+    # Merge properly
+    nfhs5 <- nfhs5 %>%
+        mutate(Row_ID = row_number()) %>%
+        left_join(state_mapping, by = "Row_ID") %>%
+        select(-Row_ID)
+}
+
+# Verify the fix
+unique(nfhs5$`States/UTs`)
+str(nfhs5)
+
+# Error observed due to improper merging. Some of the issues observed were States/UTs.x instead of States/UTs and Statrs/UTs is generated as NULL in the unique(). We will have to do corrections here; like removing extra rows, renaming States/UTs. The code is mentioned below:
+
+
+# Rename the incorrect column to the correct name
+colnames(nfhs5)[colnames(nfhs5) == "States/UTs.x"] <- "States/UTs"
+
+# Ensure unique rows based on `States/UTs`
+nfhs5 <- nfhs5 %>%
+    distinct(`States/UTs`, .keep_all = TRUE)
+
+#Remove Any Extra Columns Created by Merge
+nfhs5 <- nfhs5 %>% select(-contains(".y"))
+
+# Verify unique state names
+unique(nfhs5$`States/UTs`)
+
+# Check structure
+str(nfhs5)
+
+ # Save cleaned dataset
+saveRDS(nfhs5, "NFHS5_cleaned.rds")
+
+# Convert all columns (except 'States/UTs' and 'Area') to numeric
+nfhs5 <- nfhs5 %>%
+  mutate(across(
+    .cols = !c(`States/UTs`, Area), 
+    .fns = ~ as.numeric(gsub("[^0-9.]", "", .)), # Remove non-numeric characters
+    .names = "converted_{.col}"
+  ))
+
+# Remove original columns and rename converted columns
+nfhs5 <- nfhs5 %>%
+  select(`States/UTs`, Area, starts_with("converted_")) %>% # Keep only converted columns
+  rename_with(~ sub("converted_", "", .), starts_with("converted_")) # Remove "converted_" prefix
+
+# Verify the structure
+str(nfhs5)
+
+#convert States/UTs to factor
+nfhs5$`States/UTs` <- factor(nfhs5$`States/UTs`)
+
+# View unique state names
+unique(nfhs5$`States/UTs`)
+
+#Remove Spaces, Symbols, and Special Characters in Column Names
+colnames(nfhs5) <- gsub("[/<>{}()]", "", colnames(nfhs5))  # Remove special symbols
+colnames(nfhs5) <- gsub(" ", ".", colnames(nfhs5))  # Replace spaces with dots
+
+# Check the new column names
+print(colnames(nfhs5))
+
+#Replace % with Pct 
+colnames(nfhs5) <- gsub("%", "Pct", colnames(nfhs5)) 
+
+#final time see the class of all the variables
+sapply(nfhs5, class)
+
+
+# Save cleaned dataset
+saveRDS(nfhs5, "NFHS5_cleaned.rds")
+```
+
+
+```
+
+
