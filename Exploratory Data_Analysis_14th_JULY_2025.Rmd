@@ -1,0 +1,932 @@
+---
+title: "Exploratory Data analysis_ RF_MLR"
+author: "Sandeep Thullimalli"
+date: "2025-04-23"
+output: html_document
+---
+
+#Install the packages before knitting
+```{r install-packages, eval=FALSE}
+# Run this in the Console before knitting:
+install.packages(c("dplyr", "readr", "ggplot2", "tidyr"))
+
+```
+
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(DataExplorer)
+library(summarytools)
+
+# Load the cleaned dataset with shortened variable names
+nfhs5_cleaned <- read.csv("NFHS5_cleaned_final25thApril.csv")
+```
+# Title
+Exploring Determinants of Neonatal Mortality Rate (NMR) in India: A Machine Learning and Spatial Analysis Approach Using NFHS-5 Data
+
+# 1. Introduction
+
+The National Family Health Survey (NFHS-5) provides vital information on population, health, and nutrition indicators across Indian states and union territories. In this document, we perform an exploratory data analysis (EDA) on the cleaned and pre-processed NFHS-5 dataset, where variable names have been shortened for ease of interpretation and visualization. This EDA will serve as a foundational step toward building predictive models for understanding factors influencing neonatal mortality and related health outcomes.
+
+# 2. Rationale
+
+Public health planning and policy formulation require robust, state-specific evidence. With over 130 health and demographic indicators, the NFHS-5 dataset offers a rich source of insights into regional disparities and health determinants. However, to harness this potential effectively, a thorough understanding of data quality, patterns, and correlations is essential. This EDA will uncover trends, highlight outliers, and prepare the ground for applying machine learning techniques like Random Forest and regression modeling.
+
+# Objectives
+- To explore the spatial distribution and variability of neonatal mortality rates (NMR) across Indian states using NFHS-5 data.
+- To identify key public health, nutritional, and sociodemographic factors associated with NMR through correlation and multiple linear regression (MLR) analyses.
+- To develop a Random Forest machine learning model to predict NMR and evaluate variable importance.
+- To compare the predictive performance of traditional regression models (MLR) and machine learning models (Random Forest).
+
+
+# 4. Dataset Overview
+
+```{r}
+# Show structure and summary
+str(nfhs5_cleaned)
+dfSummary(nfhs5_cleaned)
+```
+# I am adding the code that was used to rename and shorten the variables here, for the prupose of documentation. As the file "NFHS5_cleaned_final25thApril.csv" is already saved with the changes done, it will affect the knitting process. Hence the knitting process directly starts with the analysis.
+
+## Convert States/UTs and Area to factors
+nfhs5_cleaned$states_uts <- as.factor(nfhs5_cleaned$states_uts)
+nfhs5_cleaned$area <- as.factor(nfhs5_cleaned$area)
+
+## Replace '*' and '-' with NA in character columns
+nfhs5_cleaned[nfhs5_cleaned == "*" | nfhs5_cleaned == "-"] <- NA
+
+## Convert all character columns (except categorical variables) to numeric
+## Identify character columns except 'states_uts' and 'area'
+char_cols <- names(nfhs5_cleaned)[sapply(nfhs5_cleaned, is.character)]
+char_cols <- setdiff(char_cols, c("states_uts", "area"))
+
+## Convert the selected character columns to numeric
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  mutate(across(all_of(char_cols), ~as.numeric(.)))
+
+## Check structure to verify changes
+str(nfhs5_cleaned)
+
+## As the names are long, we will rename the variables and shorten them. This is done to to ensure visualizations, plots, etc are viewed properly. As this renaming process was already done before hand, I am adding this in the comments
+
+library(dplyr)
+
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  rename(
+    sex_ratio_birth_5yrs = sex_ratio_at_birth_for_children_born_in_the_last_five_years_females_per_1.000_males,
+    birth_reg_civil_u5 = children_under_age_5_years_whose_birth_was_registered_with_the_civil_authority,
+    fp_users_sideeffects = current_users_ever_told_about_side_effects_of_current_method_of_family_planning8,
+    anc_first_trimester = mothers_who_had_an_antenatal_check_up_in_the_first_trimester_for_last_birth_in_the_5_years_before_the_survey,
+    child_12_23_mnth_vacc_card_recall = children_age_12_23_months_fully_vaccinated_based_on_information_from_either_vaccination_card_or_mother.s_recall11
+  )
+
+## Rename long variables to shorter, readable names for ease of analysis
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  rename(
+    # Antenatal care
+    anc_4visits = mothers_who_had_at_least_4_antenatal_care_visits_for_last_birth_in_the_5_years_before_the_survey,
+    tetanus_protection_lastbirth = mothers_whose_last_birth_was_protected_against_neonatal_tetanus_for_last_birth_in_the_5_years_before_the_survey9,
+    ifa_100days_lastbirth = mothers_who_consumed_iron_folic_acid_for_100_days_or_more_when_they_were_pregnant_for_last_birth_in_the_5_years_before_the_survey,
+    preg_lastbirth_ifa_180days = mothers_who_consumed_iron_folic_acid_for_180_days_or_more_when_they_were_pregnant_for_last_birth_in_the_5_years_before_the_survey.,
+    mcp_card_received_lastbirth = registered_pregnancies_for_which_the_mother_received_a_mother_and_child_protection_mcp_card_for_last_birth_in_the_5_years_before_the_survey,
+    postnatal_care_2days_lastbirth = mothers_who_received_postnatal_care_from_a_doctor_nurse_lhv_anm_midwife_other_health_personnel_within_2_days_of_delivery_for_last_birth_in_the_5_years_before_the_survey,
+    child_postnatal_2days_lastbirth = children_who_received_postnatal_care_from_a_doctor_nurse_lhv_anm_midwife__other_health_personnel_within_2_days_of_delivery_for_last_birth_in_the_5_years_before_the_survey,
+    oop_delivery_public_lastbirth = average_out_of_pocket_expenditure_per_delivery_in_a_public_health_facility_for_last_birth_in_the_5_years_before_the_survey_rs_,
+
+    # Delivery and birth
+    inst_births = institutional_births_in_the_5_years_before_the_survey,
+    inst_births_publicfacility = institutional_births_in_public_facility_in_the_5_years_before_the_survey,
+    skilled_home_births = home_births_that_were_conducted_by_skilled_health_personnel_in_the_5_years_before_the_survey10,
+    skilled_birth_attend = births_attended_by_skilled_health_personnel_in_the_5_years_before_the_survey10,
+    csec_births = births_delivered_by_caesarean_section_in_the_5_years_before_the_survey,
+    csec_births_private = births_in_a_private_health_facility_that_were_delivered_by_caesarean_section_in_the_5_years_before_the_survey,
+    csec_births_public = births_in_a_public_health_facility_that_were_delivered_by_caesarean_section_in_the_5_years_before_the_survey,
+
+    # Child vaccinations
+    chid_12_23_mnth_full_vacc_card = children_age_12_23_months_fully_vaccinated_based_on_information_from_vaccination_card_only12,
+    children_age_12_23_months_polio3 = children_age_12_23_months_who_have_received_3_doses_of_polio_vaccine13,
+    children_age_12_23_months_dpt3 = children_age_12_23_months_who_have_received_3_doses_of_penta_or_dpt_vaccine,
+    children_age_12_23_months_mcv1 = children_age_12_23_months_who_have_received_the_first_dose_of_measles_containing_vaccine_mcv,
+    child__24_35m_mcv2dose = children_age_24_35_months_who_have_received_a_second_dose_of_measles_containing_vaccine_mcv,
+    child_12_23_months_rotavirus3dose = children_age_12_23_months_who_have_received_3_doses_of_rotavirus_vaccine14,
+    child_12_23_months_penta_hepb3dose = children_age_12_23_months_who_have_received_3_doses_of_penta_or_hepatitis_b_vaccine,
+    child_12_23_months_vacc_public = children_age_12_23_months_who_received_most_of_their_vaccinations_in_a_public_health_facility,
+    child_12_23_months_vacc_private = children_age_12_23_months_who_received_most_of_their_vaccinations_in_a_private_health_facility,
+
+    # Child nutrition
+    children_9_35_mnth_vitaminA_6m = children_age_9_35_months_who_received_a_vitamin_a_dose_in_the_last_6_months,
+    child_6_59_mnth_anaemia_u5 = children_age_6_59_months_who_are_anaemic_.11_0_g_dl22,
+    stunting_u5 = children_under_5_years_who_are_stunted_height_for_age18,
+    wasting_u5 = children_under_5_years_who_are_wasted_weight_for_height18,
+    underweight_u5 = children_under_5_years_who_are_underweight_weight_for_age18,
+    overweight_u5_wfh = children_under_5_years_who_are_overweight_weight_for_height20,
+
+    # Family planning
+    married_women_15_49yrs_fp_any = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___any_method6,
+    married_women_15_49yrs_fp_modern = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___any_modern_method6,
+    married_women_15_49yrs_fp_female_ster = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___female_sterilization,
+    married_women_15_49yrs_fp_male_ster = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___male_sterilization,
+    marriedwmn_15_49yr_fp_iud_ppiud = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___iud_ppiud,
+    marriedwmn_15_49yr_fp_iud_fp_pill = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___pill,
+    marriedwmn_15_49yr_fp_iud_fp_condom = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___condom,
+    marriedwmn_15_49yr_fp_iud_fp_injectables = current_use_of_family_planning_methods_currently_married_women_age_15_49_years___injectables,
+    marriedwmn_15_49yr_fp_iud_fp_unmet_need_total = total_unmet_need_for_family_planning_currently_married_women_age_15_49_years7,
+
+    # Infant feeding
+    bf_within_1hr_birth = children_under_age_3_years_breastfed_within_one_hour_of_birth15,
+    child_6_23mnth_adequate_bf_diet = breastfeeding_children_age_6_23_months_receiving_an_adequate_diet16._17,
+    child_6_23mnth_adequate_nonbf_diet = non_breastfeeding_children_age_6_23_months_receiving_an_adequate_diet16._17,
+    total_child_6_23_mnth_adequate_diet = total_children_age_6_23_months_receiving_an_adequate_diet16._17,
+
+    # Insurance and schooling
+    health_insur_cvrg_anymembr = households_with_any_usual_member_covered_under_a_health_insurance_financing_scheme,
+    child_5yr_preprimary_school_attend = children_age_5_years_who_attended_pre_primary_school_during_the_school_year_2019_20,
+
+    # BMI
+    wmn_15_49yr_bmi_below_18 = women_age_15_49_years_whose_body_mass_index_bmi_is_below_normal_bmi_.18_5_kg_m221,
+    men_15_49yr_bmi_below_18 = men_age_15_49_years_whose_body_mass_index_bmi_is_below_normal_bmi_.18_5_kg_m2,
+    wmn_15_49yr_bmi_overweight_above_25 = women_age_15_49_years_who_are_overweight_or_obese_bmi_.25_0_kg_m221,
+    men_15_49yr_bmi_overweight_above_25 = men_age_15_49_years_who_are_overweight_or_obese_bmi_.25_0_kg_m2,
+
+    # Waist-Hip Ratio
+    women_15_49yrs_wh_ratio_risk = women_age_15_49_years_who_have_high_risk_waist_to_hip_ratio_.0_85,
+    men_15_49yr_wh_ratio_risk_men = men_age_15_49_years_who_have_high_risk_waist_to_hip_ratio_.0_90,
+
+    # Anaemia
+    anaemia_nonpreg_women_15_49yrs = non_pregnant_women_age_15_49_years_who_are_anaemic_.12_0_g_dl22
+  )
+
+
+
+## Rename long variables to shorter, readable names for ease of analysis
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  rename(
+   ari_symptoms_u5_2wks = children_prevalence_of_symptoms_of_acute_respiratory_infection_ari_in_the_2_weeks_preceding_the_survey_children_under_age_5_years,
+    ari_to_facility_u5 = children_with_fever_or_symptoms_of_ari_in_the_2_weeks_preceding_the_survey_taken_to_a_health_facility_or_health_provider_children_under_age_5_years,
+    diarrhea_prev_2w_u5 = prevalence_of_diarrhoea_in_the_2_weeks_preceding_the_survey_children_under_age_5_years,
+    diarrhea_ors_u5 = children_with_diarrhoea_in_the_2_weeks_preceding_the_survey_who_received_oral_rehydration_salts_ors_children_under_age_5_years,
+    diarrhea_zinc_u5 = children_with_diarrhoea_in_the_2_weeks_preceding_the_survey_who_received_zinc_children_under_age_5_years,
+    diarrhea_checkup_u5 = children_swith_diarrhoea_in_the_2_weeks_preceding_the_survey_taken_to_a_health_facility_or_health_provider_children_under_age_5_years,
+    born_home_checkup_24hrs = children_born_at_home_who_were_taken_to_a_health_facility_for_a_check_up_within_24_hours_of_birth_for_last_birth_in_the_5_years_before_the_survey.,
+    solidsemibm_feed_6_8_months = children_age_6_8_months_receiving_solid_or_semi_solid_food_and_breastmilk16,
+    exclusive_bf_u6_months = children_under_age_6_months_exclusively_breastfed16,
+    severely_wasted_u5 = children_under_5_years_who_are_severely_wasted_weight_for_height19
+  )
+
+## Final few variables remaned to make them short
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  rename(
+    marriedwmn_15_49yr_fp_spacing = unmet_need_for_spacing_currently_married_women_age_15_49_years7,
+    pregwmn_15_19yr_anamic_11g = pregnant_women_age_15_49_years_who_are_anaemic_.11_0_g_dl22,
+    healthwrkr_talk_fem_nonusers_fp = health_worker_ever_talked_to_female_non_users_about_family_planning,
+    preg_marriedwmn_15_49_surveytime = women_age_15_19_years_who_were_already_mothers_or_pregnant_at_the_time_of_the_survey,
+    households_improv_sanitation =  population_living_in_households_that_use_an_improved_sanitation_facility2,
+    housholds_imrpv_drinkingwatr =  population_living_in_households_with_an_improved_drinking_water_source1,
+    deaths_3yr_civilauthority_regd = deaths_in_the_last_3_years_registered_with_the_civil_authority,
+    female_pop_over6yr_attend_school = female_population_age_6_years_and_above_who_ever_attended_school
+  )
+    
+## Final few variables remaned to make them short 2
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  rename(
+    women_over15yr_bloodsugar_140_medicine = women_age_15_years_and_above_wih_high_or_very_high_.140_mg_dl_blood_sugar_level_or_taking_medicine_to_control_blood_sugar_level23,
+    men_over15yr_bloodsugar_140_medicine = men_age_15_years_and_above_wih_high_or_very_high_.140_mg_dl_blood_sugar_level_or_taking_medicine_to_control_blood_sugar_level23,
+    women_over15yr_bp_elevated_140_90 = women_age_15_years_and_above_wih_elevated_blood_pressure_systolic_.140_mm_of_hg_and_or_diastolic_.90_mm_of_hg_or_taking_medicine_to_control_blood_pressure,
+    men_over15yr_bp_elevated_140_90 = men_age_15_years_and_above_wih_elevated_blood_pressure_systolic_.140_mm_of_hg_and_or_diastolic_.90_mm_of_hg_or_taking_medicine_to_control_blood_pressure,
+    marriedwomen_15_49_3household_decisions = currently_married_women_age_15_49_years_who_usually_participate_in_three_household_decisions25,
+    women_15_49yr_condom_hiv_aware = women_age_15_49_years_who_know_that_consistent_condom_use_can_reduce_the_chance_of_getting_hiv_aids,
+    men_15_49yr_condom_hiv_aware = men_age_15_49_years_who_know_that_consistent_condom_use_can_reduce_the_chance_of_getting_hiv_aids,
+    women_18_49_violence_pregnancy = ever_married_women_age_18_49_years_who_have_experienced_physical_violence_during_any_pregnancy,
+    women_18_49_spousal_violence = ever_married_women_age_18_49_years_who_have_ever_experienced_spousal_violence27,
+    young_women_18_29_sexual_violence_u18 = young_women_age_18_29_years_who_experienced_sexual_violence_by_age_18,
+    women_30_49_cervical_screening = women_age_30_49_years_ever_undergone_a_screening_test_for_cervical_cancer,
+    women_30_49_breast_exam = women_age_30_49_years_ever_undergone_a_breast_examination_for_breast_cancer,
+    women_30_49_oral_exam_oral_cancr = women_age_30_49_years_ever_undergone_an_oral_cavity_examination_for_oral_cancer,
+    men_30_49_oral_exam_oral_cancr =  men_age_30_49_yearsever_undergone_an_oral_cavity_examination_for_oral_cancer
+)
+    
+## one final check to ensure the names of th variables are shortened
+
+str(nfhs5_cleaned)
+
+## just in case, we will save the file here
+write.csv(nfhs5_cleaned, "NFHS5_cleaned_final25thApril.csv", row.names = FALSE)
+
+
+
+# 5. Exploratory Data Analysis (EDA)
+Exploratory Data Analysis (EDA) is a crucial step in understanding the patterns, distributions, and quality of the data. Before applying any statistical or machine learning models, it's essential to explore the dataset to:
+
+Understand the nature and distribution of variables,
+
+Identify missing data or coding errors (like unexpected symbols or outliers),
+
+Detect multicollinearity or redundancy among variables,
+
+Gain insights for feature engineering or model refinement.
+
+The NFHS-5 dataset comprises over 130 indicators covering demographics, maternal and child health, nutrition, immunization, and more. 
+
+## 5.1 Summary of Variables and Missing Values
+```{r}
+# Summary statistics (numerical variables)
+summary(nfhs5_cleaned)
+
+# Overview
+glimpse(nfhs5_cleaned)
+summary(nfhs5_cleaned)
+
+# Missing values
+library(naniar)
+vis_miss(nfhs5_cleaned)
+
+# Count of NAs per column
+colSums(is.na(nfhs5_cleaned))
+
+
+
+
+summary(nfhs5_cleaned)
+
+
+```
+# 6. Exploratory Data Analysis
+
+## State-wise summary
+
+```{r}
+## Step 1: State-wise Summary for Key Health Indicators
+#Let’s extract state-wise data for NMR and potential predictors.
+
+#We’ll use:
+
+# neonatal_mortality_rate_per_1000_live_births (your outcome)
+
+#A few plausible predictors based on health systems, nutrition, and education
+
+library(dplyr)
+
+nmr_data <- nfhs5_cleaned %>%
+  filter(area == "Total") %>%
+  select(
+    states_uts,
+    neonatal_mortality_rate_per_1000_live_births,
+    sex_ratio_birth_5yrs,
+    women_age_15_49_with_10_or_more_years_of_schooling,
+    stunting_u5,
+    wasting_u5,
+    child_6_59_mnth_anaemia_u5,
+    fp_users_sideeffects,
+    inst_births,
+    skilled_birth_attend,
+    anc_first_trimester
+  )
+
+## Step 2: Visualize state-wise NMR (Bar chart)
+## This gives a quick comparison.
+
+library(ggplot2)
+
+ggplot(nmr_data, aes(x = reorder(states_uts, -neonatal_mortality_rate_per_1000_live_births), 
+                     y = neonatal_mortality_rate_per_1000_live_births)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "State-wise Neonatal Mortality Rate (per 1000 live births)",
+       x = "States/UTs", y = "NMR") +
+  theme_minimal()
+
+### 📊 State-wise Trends in Neonatal Mortality Rate (NMR)
+
+####The bar chart above shows Neonatal Mortality Rate (NMR) per 1000 live births across Indian States and Union Territories based on NFHS-5 data. The NMR values vary significantly across regions, highlighting disparities in newborn survival.
+
+
+#### Highest NMR values are observed in Uttar Pradesh, Bihar, and Chhattisgarh, reflecting persistent health system challenges in maternal and newborn care.
+
+#### States like Kerala, Puducherry, Lakshadweep, and Chandigarh report low or even negative NMR values, which may indicate data reporting issues, small sample sizes, or exceptionally high neonatal survival rates.
+
+#### The presence of negative or zero values suggests the need for data cleaning before modeling, as these may distort statistical analysis.
+
+
+
+ ## filter out states with NMR ≤ 0 or missing:
+nmr_data_clean <- nmr_data %>%
+  filter(neonatal_mortality_rate_per_1000_live_births > 0)
+
+
+## Correlation Matrix to Explore Relationship with Neonatal Mortality Rate (NMR)
+
+### Rationale: This correlation analysis was done to see how neonatal mortality rate (NMR) is related to key public health indicators. I selected a few variables that are commonly known to affect neonatal health outcomes—especially maternal education, ANC coverage, child nutrition, and access to delivery care.
+
+### Selected Variables:`women_age_15_49_with_10_or_more_years_of_schooling`: Proxy for maternal education`stunting_u5`, `wasting_u5`, `child_6_59_mnth_anaemia_u5`: Child nutrition indicators`anc_first_trimester`, `anc_4visits`, `postnatal_care_2days_lastbirth`: Maternal healthcare utilization`fp_users_sideeffects`: Awareness of family planning side effects (as a proxy for health communication reach)`health_insur_cvrg_anymembr`: Proxy for financial protection `inst_births`, `skilled_birth_attend`: Facility and skilled delivery coverage
+
+library(dplyr)
+library(ggcorrplot)
+
+# Filter only 'Total' area data to avoid duplication
+df_corr <- nfhs5_cleaned %>%
+  filter(area == "Total") %>%
+  select(
+    neonatal_mortality_rate_per_1000_live_births,
+    women_age_15_49_with_10_or_more_years_of_schooling,
+    stunting_u5,
+    wasting_u5,
+    child_6_59_mnth_anaemia_u5,
+    anc_first_trimester,
+    anc_4visits,
+    postnatal_care_2days_lastbirth,
+    fp_users_sideeffects,
+    health_insur_cvrg_anymembr,
+    inst_births,
+    skilled_birth_attend
+  ) %>%
+  na.omit()
+
+# Compute Preliminary correlation matrix to guide variable selection
+corr_matrix <- cor(df_corr, use = "complete.obs")
+
+# Plot correlation matrix
+ggcorrplot::ggcorrplot(
+  corr_matrix,
+  lab = TRUE,
+  type = "lower",
+  title = "Correlation Matrix with Neonatal Mortality Rate",
+  lab_size = 3,
+  tl.cex = 10,          # Text size
+  tl.srt = 45,          # Rotate axis labels
+  tl.col = "black"      # Axis text color
+)
+
+
+
+# Save the cleaned dataset to your working directory
+write.csv(nfhs5_cleaned, "nfhs5_cleaned_RM_MLR_25thApril.csv", row.names = FALSE)
+
+
+
+```
+
+# 7. Correlation of all numerical variables
+
+# rationale: Instead of manually selecting variables based on prior assumptions, I conducted a correlation scan across all numeric variables available in the NFHS-5 dataset. This approach helps identify both expected and unexpected associations with neonatal mortality (NMR).
+
+# Method: I filtered the dataset to include only "Total" area records to avoid rural-urban duplication, then selected only numeric columns. The correlation coefficient of each variable with NMR was computed using Pearson correlation. This is for a data-driven way to screen for predictors before model building (MLR/Random Forest). It ensures that no potential associations are missed, even from variables not initially considered during hypothesis formation.
+
+```{r}
+
+# Filter to 'Total' and select only numeric variables
+df_corr_all <- nfhs5_cleaned %>%
+  filter(area == "Total") %>%
+  select_if(is.numeric) %>%
+  select(neonatal_mortality_rate_per_1000_live_births, everything()) %>%
+  na.omit()
+
+# Calculate correlation matrix
+cor_nmr <- cor(df_corr_all, use = "complete.obs")
+
+# Extract correlation of all variables with NMR
+cor_target <- cor_nmr[, "neonatal_mortality_rate_per_1000_live_births"]
+
+# Sort by absolute value of correlation (strongest associations at the top)
+cor_sorted <- sort(cor_target, decreasing = TRUE)
+
+# View top 15 positively and negatively correlated variables
+head(cor_sorted, 15)
+tail(cor_sorted, 15)
+
+
+### Correlation Insights: Neonatal Mortality Rate (NMR) and Other Indicators
+
+### Purpose:  
+#### We are exploring how NMR is associated with other health and demographic indicators. Strong positive or negative correlations help identify potential predictors for modeling.
+
+#### Top 15 Positively Correlated Variables
+####  These are the variables that increase along with NMR: 
+
+#### Infant Mortality Rate (0.96)
+####Under-Five Mortality Rate (0.94)
+#### Men BMI < 18 (0.76) 
+#### Women BMI < 18 (0.70)
+#### Pregnant Teen Anaemia (0.56)
+#### Tetanus Protection (0.51)
+#### Underweight U5 (0.47)
+
+
+#### Top 15 Negatively Correlated Variables
+#### These variables decrease as NMR increases.
+
+#### Women Owning Mobile Phones (-0.70)
+#### Overweight U5 (-0.59)
+#### Breastfed Within 1 Hour (-0.59)
+#### Improved Sanitation (-0.55)
+#### Women Using Internet (-0.51)
+#### Public C-sections (-0.47)
+#### Female Literacy (-0.47)
+
+### Conclusion
+#### These correlations help filter relevant predictors for modeling. Variables like **maternal nutrition, service coverage, literacy, and infrastructure show clear relationships with NMR. We will use this to refine our feature set for Random Forest and MLR modeling.
+
+
+
+## ----multicollinearity-check-vif, echo=TRUE, message=FALSE, warning=FALSE----
+
+### Explanation:
+### We selected the top 15 variables positively and negatively correlated with NMR.
+### To ensure these predictors are not highly correlated among themselves,
+### we used the Variance Inflation Factor (VIF) to assess multicollinearity.
+### VIF > 5 suggests moderate multicollinearity; VIF > 10 indicates strong multicollinearity.
+### Variables with high VIFs may be excluded or adjusted for in the regression model.
+
+
+# Load required package
+library(car)
+
+# Select the top 15 positive and 15 negative correlated variables (from previous correlation step)
+top_pos_vars <- names(head(cor_sorted, 15))
+top_neg_vars <- names(tail(cor_sorted, 15))
+
+# Combine and ensure uniqueness
+selected_vars <- unique(c(top_pos_vars, top_neg_vars))
+
+# Prepare data: filter only 'Total' area, select relevant variables, and remove missing values
+df_vif <- nfhs5_cleaned %>%
+  filter(area == "Total") %>%
+  select(all_of(selected_vars)) %>%
+  na.omit()
+
+# Fit linear model with NMR as outcome
+lm_vif_model <- lm(neonatal_mortality_rate_per_1000_live_births ~ ., data = df_vif)
+
+# Calculate VIF values
+vif_values <- vif(lm_vif_model)
+print(vif_values)
+
+## Multicollinearity Check:  Multicollinearity was assessed using the Variance Inflation Factor (VIF) method. VIF values above 5 or 10 indicate high multicollinearity, which can distort regression estimates. 
+
+## In our initial VIF check, several variables exhibited very high values (e.g., VIF > 1000), particularly variables that are highly related to our outcome or among themselves. These include overlapping mortality indicators (e.g., IMR and U5MR), population counts, and literacy indicators.
+
+## To ensure the reliability of regression estimates, we will iteratively remove highly collinear variables and retain only those with acceptable VIF levels (< 10).
+
+df_vif_filtered <- df_vif %>%
+  select(-infant_mortality_rate_per_1000_live_births,
+         -under_five_mortality_rate_per_1000_live_births,
+         -number_of_households_surveyed,
+         -number_of_men_age_15_54_years_interviewed,
+         -number_of_women_age_15_49_years_interviewed)
+
+
+
+# Refit linear model without the removed variables
+vif_model_updated <- lm(neonatal_mortality_rate_per_1000_live_births ~ ., data = df_vif_filtered)
+
+# Calculate VIF values again
+vif_values_updated <- vif(vif_model_updated)
+
+# Print updated VIFs
+print(vif_values_updated)
+
+# Remove high multicollinearity variables based on VIF analysis
+# Filtering out variables with 'men' in their name and 'healthwrkr_talk_fem_nonusers_fp'
+vif_variables <- c(
+  "men_15_49yr_bmi_below_18",
+  "men_age_25_29_years_married_before_age_21_years",
+  "men_age_15_49_years_who_have_comprehensive_knowledge24_of_hiv_aids",
+  "men_15_49yr_bmi_overweight_above_25",
+  "healthwrkr_talk_fem_nonusers_fp"
+)
+
+# Drop these columns from the dataset
+nfhs5_cleaned <- nfhs5_cleaned %>%
+  select(-all_of(vif_variables))
+
+# 1. Recreate the final list of selected variables (top 15 positive + 15 negative correlated)
+top_pos_vars <- names(head(cor_sorted, 15))
+top_neg_vars <- names(tail(cor_sorted, 15))
+selected_vars <- unique(c(top_pos_vars, top_neg_vars))
+
+# 2. Exclude the high-VIF variables manually removed
+vars_to_exclude <- c(
+  "infant_mortality_rate_per_1000_live_births",
+  "under_five_mortality_rate_per_1000_live_births",
+  "number_of_households_surveyed",
+  "number_of_women_age_15_49_years_interviewed",
+  "number_of_men_age_15_54_years_interviewed",
+  "men_15_49yr_bmi_below_18",
+  "men_age_25_29_years_married_before_age_21_years",
+  "men_age_15_49_years_who_have_comprehensive_knowledge24_of_hiv_aids",
+  "men_15_49yr_bmi_overweight_above_25",
+  "healthwrkr_talk_fem_nonusers_fp"
+)
+
+selected_vars_final <- setdiff(selected_vars, vars_to_exclude)
+
+# 3. Prepare the filtered dataset for VIF
+df_vif_final <- nfhs5_cleaned %>%
+  filter(area == "Total") %>%
+  select(all_of(selected_vars_final)) %>%
+  na.omit()
+
+# 4. Fit linear model for VIF checking
+library(car)
+vif_model_final <- lm(neonatal_mortality_rate_per_1000_live_births ~ ., data = df_vif_final)
+
+# 5. Calculate and print VIF
+vif_values_final <- vif(vif_model_final)
+print(vif_values_final)
+
+
+vif_remove_final <- c(
+  "wmn_15_49yr_bmi_below_18",
+  "underweight_u5",
+  "female_pop_over6yr_attend_school",
+  "women_age_15_49_who_are_literate4",
+  "women_age_15_49_who_have_ever_used_the_internet",
+  "overweight_u5_wfh",
+  "women_age_15_49_years_having_a_mobile_phone_that_they_themselves_use",
+  "total_fertility_rate_number_of_children_per_woman"
+)
+
+
+# Drop final high-VIF variables
+df_vif_final_filtered <- df_vif_final %>%
+  select(-all_of(vif_remove_final))
+
+# Refit the model
+vif_model_final2 <- lm(neonatal_mortality_rate_per_1000_live_births ~ ., data = df_vif_final_filtered)
+
+# Calculate new VIFs
+vif_values_final2 <- vif(vif_model_final2)
+print(vif_values_final2)
+
+```
+
+# Multiple Linear Regression Model (MLR)
+
+## Purpose: To assess the strength and direction of association between selected predictors and neonatal mortality rate (NMR) using a linear model. This helps us understand how individual factors contribute to NMR while controlling for others.
+
+```{r mlr-model, message=FALSE, warning=FALSE}
+# Fit the MLR model using the final set of variables with low multicollinearity
+mlr_model <- lm(neonatal_mortality_rate_per_1000_live_births ~ ., data = df_vif_final_filtered)
+
+# Summarize the model
+summary(mlr_model)
+
+
+## 8. Multiple Linear Regression (MLR) to Predict Neonatal Mortality
+
+### To explore the influence of selected health system and demographic variables on neonatal mortality rate (NMR), we ran a multiple linear regression using 11 predictors identified from correlation analysis and VIF filtering.
+
+### The model had an **Adjusted R² of 0.707, indicating that 71% of the variation in NMR across states could be explained by the selected variables.
+
+### Significant negative associations were found for:
+### Early breastfeeding initiation, 
+### C-section births in public facilities, and
+### positive association** with early complementary feeding practices.
+
+### These findings align with global evidence, reinforcing the importance of maternal and newborn care interventions.
+
+### Non-significant predictors such as maternal anaemia, sanitation, or hygienic practices during menstruation may need deeper contextual exploration.
+
+
+```
+
+## Interpretation:
+##The **coefficients** show the estimated change in NMR per unit change in each predictor, holding others constant.
+- **p-values** indicate statistical significance (*p < 0.05 typically considered significant*).
+- **R-squared** and **Adjusted R-squared** indicate how much variance in NMR is explained by the model.
+
+## Diagnostics (Optional but Recommended):
+```{r mlr-diagnostics, message=FALSE, warning=FALSE}
+par(mfrow = c(2, 2))
+plot(mlr_model)
+```
+- **Residual plots** help assess the assumptions of linearity, homoscedasticity, and normality.
+- If assumptions are violated, consider transforming variables or switching to non-linear models like Random Forest.
+
+
+
+# 8. Random Forest Regression
+
+## Rationale:
+While Multiple Linear Regression (MLR) provides interpretability, Random Forest (RF) is a powerful machine learning technique that can capture non-linear relationships and interactions between variables. RF is particularly useful in public health datasets like NFHS-5, where predictors may have complex, non-linear effects on outcomes such as Neonatal Mortality Rate (NMR). 
+
+This step helps us understand variable importance and strengthens the robustness of our predictive modeling.
+
+## Model Execution
+Explaination:
+Random Forest: Data Preparation and Splitting
+Before building the Random Forest model, the dataset was filtered to remove variables with high multicollinearity (based on VIF) and missing values.
+
+The dataset was then split into two parts: 80% training data and 20% testing data using random sampling.
+
+The training set was used to train the model, and the testing set was used to evaluate model performance.
+
+A random seed (set.seed(123)) was applied to ensure reproducibility.
+
+This approach ensures that the model is trained on one part of the data and validated on a separate part, helping to check for overfitting.
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(caret)
+
+# Prepare the dataset (already filtered for VIF and missing values)
+df_rf <- df_vif_final_filtered
+
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Split the data: 80% training, 20% testing
+train_index <- createDataPartition(df_rf$neonatal_mortality_rate_per_1000_live_births, p = 0.8, list = FALSE)
+train_data <- df_rf[train_index, ]
+test_data <- df_rf[-train_index, ]
+
+```
+
+### Fitting the model in the training set
+After preparing the training dataset, we built the Random Forest model to predict Neonatal Mortality Rate (NMR) across Indian states.
+
+Model Training:
+A Random Forest regression model was initially trained using 500 trees with default settings. Variable importance was calculated during model training.
+
+Hyperparameter Tuning (mtry selection):
+The optimal value of mtry (number of variables considered at each split) was identified using the tuneRF() function. This step improves model accuracy by finding the best balance between bias and variance.
+
+Refitting the Model:
+The Random Forest model was refitted using:
+
+500 trees initially,
+
+mtry = 4 (optimal value from tuning),
+
+Then also trained separately using a reduced number of 300 trees to simplify the model while maintaining performance.
+
+Variable Importance Plot:
+After model fitting, variable importance scores (based on node purity) were extracted.
+A bar plot was created to rank predictors from highest to lowest importance, making it easier to interpret key drivers of neonatal mortality.
+
+Comparison with MLR Predictors:
+Finally, the top predictors identified through Random Forest were compared with those identified in the Multiple Linear Regression (MLR) model.
+This comparison helps in cross-validating important variables across two different modeling approaches.
+```{r}
+# Train the Random Forest model
+rf_model <- randomForest(
+  neonatal_mortality_rate_per_1000_live_births ~ .,
+  data = train_data,
+  importance = TRUE,
+  ntree = 500
+)
+
+best_mtry <- tuneRF(
+  x = train_data[ , -which(names(train_data) == "neonatal_mortality_rate_per_1000_live_births")],
+  y = train_data$neonatal_mortality_rate_per_1000_live_births,
+  stepFactor = 1.5,
+  improve = 0.01,
+  trace = TRUE,
+  plot = TRUE
+)
+
+# Refit Random Forest model with best mtry
+set.seed(123)
+rf_model_tuned <- randomForest(
+  neonatal_mortality_rate_per_1000_live_births ~ .,
+  data = train_data,
+  importance = TRUE,
+  ntree = 500,
+  mtry = 4
+)
+
+# Print the model summary
+print(rf_model_tuned)
+
+# Train Random Forest with reduced number of trees (e.g., 200)
+
+rf_model_small <- randomForest(
+  formula = neonatal_mortality_rate_per_1000_live_births ~ .,
+  data = train_data,
+  importance = TRUE,
+  ntree = 300,   # Reduced number of trees
+  mtry = 4       # Optimal mtry from tuning
+)
+
+# Summary
+print(rf_model_small)
+
+# Plot the variable importance
+varImpPlot(rf_model_small)
+
+library(ggplot2)
+
+# Extract variable importance (MeanDecreaseGini)
+var_imp <- importance(rf_model_small)
+var_imp_df <- data.frame(Variable = rownames(var_imp), 
+                         Importance = var_imp[, "IncNodePurity"])
+
+# Arrange in descending order
+var_imp_df <- var_imp_df %>%
+  arrange(desc(Importance))
+
+# Plot using ggplot2
+ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  labs(title = "Variable Importance in Random Forest Model",
+       x = "Variables", y = "Node Purity (Importance)") +
+  theme_minimal(base_size = 14) +                           # Clean, bigger text
+  theme(
+    axis.text.y = element_text(size = 12),                  # Bigger labels
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centered bold title
+    panel.grid.major.y = element_blank()                    # Remove horizontal gridlines
+  )
+
+
+
+# Top predictors based on MLR significance (p < 0.05)
+top_mlr_vars <- c("solidsemibm_feed_6_8_months", 
+                  "csec_births_public", 
+                  "bf_within_1hr_birth")
+
+# Top predictors based on RF variable importance
+top_rf_vars <- c("pregwmn_15_19yr_anamic_11g", 
+                 "bf_within_1hr_birth", 
+                 "csec_births_public", 
+                 "households_using_clean_fuel_for_cooking3", 
+                 "households_improv_sanitation")
+
+# Create comparison table
+comparison_df <- data.frame(
+  `MLR Predictors` = c(top_mlr_vars, rep("", length(top_rf_vars) - length(top_mlr_vars))),
+  `Random Forest Predictors` = top_rf_vars
+)
+
+# Display as a table
+knitr::kable(comparison_df, caption = "Comparison of Top Predictors from MLR and RF")
+
+```
+# 8. Comparison of MLR and Random Forest Predictors
+
+```{r compare-metrics-mlr-rf}
+# Top variables based on MLR significance
+top_mlr_vars <- c("solidsemibm_feed_6_8_months", "csec_births_public", "bf_within_1hr_birth")
+
+# Top variables based on RF importance plot
+top_rf_vars <- c("pregwmn_15_19yr_anamic_11g", "bf_within_1hr_birth", "csec_births_public", 
+                 "households_using_clean_fuel_for_cooking3", "households_improv_sanitation")
+
+# Combine into a table
+comparison_df <- data.frame(
+  MLR = c(top_mlr_vars, rep("", length(top_rf_vars) - length(top_mlr_vars))),
+  RF = top_rf_vars
+)
+
+# Show the table
+comparison_df
+
+# Predict on the test set
+pred_rf <- predict(rf_model_small, newdata = test_data)
+
+# Calculate RMSE and R-squared
+rf_perf <- postResample(pred = pred_rf, obs = test_data$neonatal_mortality_rate_per_1000_live_births)
+print(rf_perf)
+```
+Model Evaluation Metrics: RF vs MLR
+```{r}
+### 1. Random Forest Predictions and Metrics
+# Predict on the test set
+pred_rf <- predict(rf_model_small, newdata = test_data)
+
+# Actual values
+actual_rf <- test_data$neonatal_mortality_rate_per_1000_live_births
+
+# Calculate RMSE, R², MAE
+rf_metrics <- data.frame(
+  RMSE = RMSE(pred_rf, actual_rf),
+  Rsquared = R2(pred_rf, actual_rf),
+  MAE = MAE(pred_rf, actual_rf)
+)
+
+print(rf_metrics)
+
+
+### 2. Multiple Linear Regression Predictions and Metrics
+# Split MLR data again (same 80/20 split as RF)
+set.seed(123)
+mlr_index <- createDataPartition(df_vif_final_filtered$neonatal_mortality_rate_per_1000_live_births, p = 0.8, list = FALSE)
+mlr_train <- df_vif_final_filtered[mlr_index, ]
+mlr_test <- df_vif_final_filtered[-mlr_index, ]
+
+# Fit the model
+mlr_model_split <- lm(neonatal_mortality_rate_per_1000_live_births ~ ., data = mlr_train)
+
+# Predict on test data
+pred_mlr <- predict(mlr_model_split, newdata = mlr_test)
+actual_mlr <- mlr_test$neonatal_mortality_rate_per_1000_live_births
+
+# Calculate metrics
+mlr_metrics <- data.frame(
+  RMSE = RMSE(pred_mlr, actual_mlr),
+  Rsquared = R2(pred_mlr, actual_mlr),
+  MAE = MAE(pred_mlr, actual_mlr)
+)
+
+print(mlr_metrics)
+```
+
+
+## SPATIAL VARIABILITY
+To understand the geographical distribution of neonatal mortality, a choropleth map was created by merging NFHS-5 neonatal mortality data with state-level spatial shapefiles. This visualization highlights regional disparities in newborn survival across India.
+
+
+```{r}
+# install 'sf' package if not installed
+library(sf)
+
+# Read India states shapefile
+india_states <- st_read("C:/Users/HP/OneDrive/Documents/MAPS GITHUB/Admin2.shp")
+
+# View basic structure
+head(india_states)
+names(india_states)
+
+# Merge India states shapefile with your NMR dataset
+library(dplyr)
+map_data <- india_states %>%
+  left_join(nmr_data, by = c("ST_NM" = "states_uts"))
+
+
+# Plot the map
+
+# Use point on surface instead of centroid
+map_data_centroids <- st_point_on_surface(map_data)
+
+# Plot
+ggplot(map_data) +
+  geom_sf(aes(fill = neonatal_mortality_rate_per_1000_live_births), color = "white", size = 0.2) +
+  geom_text(
+    data = map_data_centroids,
+    aes(x = st_coordinates(geometry)[,1], y = st_coordinates(geometry)[,2],
+        label = round(neonatal_mortality_rate_per_1000_live_births, 1)),
+    size = 2, color = "black", check_overlap = TRUE
+  ) +
+  scale_fill_viridis_c(option = "C", name = "NMR (per 1000 live births)") +
+  labs(
+    title = "Spatial Distribution of Neonatal Mortality Rate (NMR) Across Indian States",
+    subtitle = "Based on NFHS-5 Data",
+    caption = "Source: NFHS-5, Analysis by Sandeep Thullimalli"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank()
+  )
+
+
+
+# Explaination: A choropleth map was generated to visualize the spatial distribution of Neonatal Mortality Rate (NMR) across Indian states based on NFHS-5 data. Higher NMR values were observed in central and northern regions, while southern and northeastern states generally exhibited lower rates. The map highlights the need for region-specific public health interventions to reduce neonatal mortality.
+```
+
+
+Summary of Findings
+This analysis used data from NFHS-5 to explore factors associated with Neonatal Mortality Rate (NMR) across Indian states. Through a combination of correlation analysis, multicollinearity checks, and predictive modeling using Multiple Linear Regression (MLR) and Random Forest (RF), we derived the following insights:
+
+Key Predictors Identified i
+Both MLR and RF consistently highlighted the importance of:
+
+a. Early initiation of breastfeeding
+
+b. Public facility caesarean section coverage
+
+c. Complementary feeding practices
+
+The most important RF predictors based on variable importance are :
+
+a. Public facility caesarean section coverage
+b. maternal anaemia in teenage pregnancies 
+c. households using clean fuel for cooking
+d. early initiation of breastfeeding within 1 hour after birth
+e. Household sanitation
+
+ Model Performance
+
+Model	RMSE	R²	MAE
+Random Forest	7.53	0.879	5.73
+Multiple Linear Regression	5.13	0.935	4.45
+The MLR model outperformed RF in predictive accuracy, explaining 93.5% of the variance in NMR, with lower RMSE and MAE.
+
+The Random Forest model, while slightly less accurate, added value by revealing complex non-linear relationships and ranking predictors by importance.
+
+ Interpretation and Implications
+Maternal and newborn care practices, such as timely breastfeeding and institutional births, show strong protective associations with NMR.
+
+Infrastructure and socioeconomic factors like sanitation and access to clean fuels also emerged as important.
+
+The combined use of MLR for interpretability and RF for robustness enhances the validity of the findings.
+
+
+
+
+
+
+
